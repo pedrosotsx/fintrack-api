@@ -7,12 +7,32 @@ using System.Security.Claims;
 using System.Text;
 using Microsoft.OpenApi.Models;
 
+string BuildPostgresConnectionString(string databaseUrl)
+{
+    if (!Uri.TryCreate(databaseUrl, UriKind.Absolute, out var uri))
+        return databaseUrl;
+
+    var userInfo = uri.UserInfo.Split(':', 2);
+    var username = Uri.UnescapeDataString(userInfo[0]);
+    var password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : string.Empty;
+    var databaseName = uri.AbsolutePath.Trim('/');
+
+    return $"Host={uri.Host};Port={uri.Port};Database={databaseName};Username={username};Password={password};Ssl Mode=Require;";
+}
+
 var builder = WebApplication.CreateBuilder(args);
+
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+var databaseUrl = builder.Configuration["DATABASE_URL"];
+
+if (string.IsNullOrWhiteSpace(connectionString) && !string.IsNullOrWhiteSpace(databaseUrl))
+{
+    connectionString = BuildPostgresConnectionString(databaseUrl);
+}
 
 builder.Services.AddDbContext<FinanceiroDbContext>(options =>
 {
-    options.UseNpgsql(
-        builder.Configuration.GetConnectionString("DefaultConnection"));
+    options.UseNpgsql(connectionString);
 });
 
 builder.Services.AddScoped<JwtService>();
@@ -54,15 +74,19 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddControllers();
 
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
+var corsOrigins = allowedOrigins
+    .Concat(new[] { "https://finsecurity.vercel.app", "http://localhost:3000", "http://localhost:5173" })
+    .Where(origin => !string.IsNullOrWhiteSpace(origin))
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToArray();
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("ReactPolicy", policy =>
     {
         policy
-            .WithOrigins(
-                "http://localhost:5173",
-                "https://finsecurity.vercel.app"
-            )
+            .WithOrigins(corsOrigins)
             .AllowAnyMethod()
             .AllowAnyHeader();
     });
@@ -98,6 +122,12 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<FinanceiroDbContext>();
+    dbContext.Database.Migrate();
+}
 
 app.UseSwagger();
 app.UseSwaggerUI();
