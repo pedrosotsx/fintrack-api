@@ -59,7 +59,10 @@ builder.Services.AddCors(options =>
     options.AddPolicy("ReactPolicy", policy =>
     {
         policy
-            .AllowAnyOrigin()
+            .WithOrigins(
+                "http://localhost:5173",
+                "https://finsecurity.vercel.app"
+            )
             .AllowAnyMethod()
             .AllowAnyHeader();
     });
