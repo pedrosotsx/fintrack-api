@@ -1,10 +1,14 @@
+using System.Security.Claims;
+using ControleFinanceiro.DTOs;
 using ControleFinanceiro.Models;
 using ControleFinanceiroApi.Data;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace ControleFinanceiro.Controllers;
 
+[Authorize]
 [ApiController]
 [Route("api/[controller]")]
 public class MetasController : ControllerBase
@@ -19,8 +23,20 @@ public class MetasController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> Get()
     {
+        var usuarioId = int.Parse(
+            User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
         var metas = await _context.MetasFinanceiras
+            .Where(m => m.UsuarioId == usuarioId)
             .OrderByDescending(m => m.DataCriacao)
+            .Select(m => new
+            {
+                m.Id,
+                m.Nome,
+                m.ValorMeta,
+                m.ValorAtual,
+                m.DataCriacao
+            })
             .ToListAsync();
 
         return Ok(metas);
@@ -29,8 +45,22 @@ public class MetasController : ControllerBase
     [HttpGet("{id}")]
     public async Task<IActionResult> GetById(int id)
     {
+        var usuarioId = int.Parse(
+            User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
         var meta = await _context.MetasFinanceiras
-            .FirstOrDefaultAsync(m => m.Id == id);
+            .Where(m =>
+                m.Id == id &&
+                m.UsuarioId == usuarioId)
+            .Select(m => new
+            {
+                m.Id,
+                m.Nome,
+                m.ValorMeta,
+                m.ValorAtual,
+                m.DataCriacao
+            })
+            .FirstOrDefaultAsync();
 
         if (meta == null)
             return NotFound("Meta não encontrada.");
@@ -39,15 +69,19 @@ public class MetasController : ControllerBase
     }
 
     [HttpPost]
-    public async Task<IActionResult> Post(MetaFinanceira meta)
+    public async Task<IActionResult> Post(CreateMetaDto dto)
     {
-        var usuarioExiste = await _context.Usuarios
-            .AnyAsync(u => u.Id == meta.UsuarioId);
+        var usuarioId = int.Parse(
+            User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
-        if (!usuarioExiste)
-            return BadRequest("Usuário inválido.");
-
-        meta.DataCriacao = DateTime.UtcNow;
+        var meta = new MetaFinanceira
+        {
+            Nome = dto.Nome,
+            ValorMeta = dto.ValorMeta,
+            ValorAtual = dto.ValorAtual,
+            UsuarioId = usuarioId,
+            DataCriacao = DateTime.UtcNow
+        };
 
         _context.MetasFinanceiras.Add(meta);
 
@@ -56,22 +90,33 @@ public class MetasController : ControllerBase
         return CreatedAtAction(
             nameof(GetById),
             new { id = meta.Id },
-            meta);
+            new
+            {
+                meta.Id,
+                meta.Nome,
+                meta.ValorMeta,
+                meta.ValorAtual,
+                meta.DataCriacao
+            });
     }
 
     [HttpPut("{id}")]
-    public async Task<IActionResult> Put(int id, MetaFinanceira meta)
+    public async Task<IActionResult> Put(int id, CreateMetaDto dto)
     {
+        var usuarioId = int.Parse(
+            User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
         var metaExistente = await _context.MetasFinanceiras
-            .FindAsync(id);
+            .FirstOrDefaultAsync(m =>
+                m.Id == id &&
+                m.UsuarioId == usuarioId);
 
         if (metaExistente == null)
             return NotFound("Meta não encontrada.");
 
-        metaExistente.Nome = meta.Nome;
-        metaExistente.ValorMeta = meta.ValorMeta;
-        metaExistente.ValorAtual = meta.ValorAtual;
-        metaExistente.UsuarioId = meta.UsuarioId;
+        metaExistente.Nome = dto.Nome;
+        metaExistente.ValorMeta = dto.ValorMeta;
+        metaExistente.ValorAtual = dto.ValorAtual;
 
         await _context.SaveChangesAsync();
 
@@ -81,8 +126,13 @@ public class MetasController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(int id)
     {
+        var usuarioId = int.Parse(
+            User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
         var meta = await _context.MetasFinanceiras
-            .FindAsync(id);
+            .FirstOrDefaultAsync(m =>
+                m.Id == id &&
+                m.UsuarioId == usuarioId);
 
         if (meta == null)
             return NotFound("Meta não encontrada.");

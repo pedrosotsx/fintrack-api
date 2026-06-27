@@ -1,10 +1,14 @@
+using System.Security.Claims;
+using ControleFinanceiro.DTOs;
 using ControleFinanceiro.Models;
 using ControleFinanceiroApi.Data;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace ControleFinanceiro.Controllers;
 
+[Authorize]
 [ApiController]
 [Route("api/[controller]")]
 public class DespesaController : ControllerBase
@@ -19,32 +23,81 @@ public class DespesaController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> Get()
     {
-        var despesa = await _context.Despesas
-            .Include(r => r.Categoria)
+        var usuarioId = int.Parse(
+            User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+        var despesas = await _context.Despesas
+            .Where(d => d.UsuarioId == usuarioId)
+            .OrderByDescending(d => d.Data)
+            .Select(d => new
+            {
+                d.Id,
+                d.Descricao,
+                d.Valor,
+                d.Data,
+                d.CategoriaId,
+                Categoria = new
+                {
+                    d.Categoria.Id,
+                    d.Categoria.Nome
+                }
+            })
             .ToListAsync();
 
-        return Ok(despesa);
+        return Ok(despesas);
     }
 
     [HttpGet("{id}")]
     public async Task<IActionResult> GetById(int id)
     {
+        var usuarioId = int.Parse(
+            User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
         var despesa = await _context.Despesas
-            .Include(r => r.Categoria)
-            .FirstOrDefaultAsync(r => r.Id == id);
+            .Where(d =>
+                d.Id == id &&
+                d.UsuarioId == usuarioId)
+            .Select(d => new
+            {
+                d.Id,
+                d.Descricao,
+                d.Valor,
+                d.Data,
+                d.CategoriaId,
+                Categoria = new
+                {
+                    d.Categoria.Id,
+                    d.Categoria.Nome
+                }
+            })
+            .FirstOrDefaultAsync();
 
         if (despesa == null)
-            return NotFound();
+            return NotFound("Despesa não encontrada.");
 
         return Ok(despesa);
     }
 
     [HttpPost]
-    public async Task<IActionResult> Post(Despesa despesa)
+    public async Task<IActionResult> Post(CreateDespesaDto dto)
     {
-        despesa.Data = DateTime.SpecifyKind(
-            despesa.Data,
-            DateTimeKind.Utc);
+        var categoriaExiste = await _context.Categorias
+            .AnyAsync(c => c.Id == dto.CategoriaId);
+
+        if (!categoriaExiste)
+            return BadRequest("Categoria inválida.");
+
+        var usuarioId = int.Parse(
+            User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+        var despesa = new Despesa
+        {
+            Descricao = dto.Descricao,
+            Valor = dto.Valor,
+            Data = DateTime.SpecifyKind(dto.Data, DateTimeKind.Utc),
+            CategoriaId = dto.CategoriaId,
+            UsuarioId = usuarioId
+        };
 
         _context.Despesas.Add(despesa);
 
@@ -53,25 +106,42 @@ public class DespesaController : ControllerBase
         return CreatedAtAction(
             nameof(GetById),
             new { id = despesa.Id },
-            despesa);
+            new
+            {
+                despesa.Id,
+                despesa.Descricao,
+                despesa.Valor,
+                despesa.Data,
+                despesa.CategoriaId
+            });
     }
 
     [HttpPut("{id}")]
-    public async Task<IActionResult> Put(int id, Despesa despesa)
+    public async Task<IActionResult> Put(int id, CreateDespesaDto dto)
     {
-        var DespesaExistente = await _context.Despesas.FindAsync(id);
+        var usuarioId = int.Parse(
+            User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
-        if (DespesaExistente == null)
-            return NotFound();
+        var despesaExistente = await _context.Despesas
+            .FirstOrDefaultAsync(d =>
+                d.Id == id &&
+                d.UsuarioId == usuarioId);
 
-        DespesaExistente.Descricao = despesa.Descricao;
-        DespesaExistente.Valor = despesa.Valor;
-        DespesaExistente.Data = DateTime.SpecifyKind(
-            despesa.Data,
+        if (despesaExistente == null)
+            return NotFound("Despesa não encontrada.");
+
+        var categoriaExiste = await _context.Categorias
+            .AnyAsync(c => c.Id == dto.CategoriaId);
+
+        if (!categoriaExiste)
+            return BadRequest("Categoria inválida.");
+
+        despesaExistente.Descricao = dto.Descricao;
+        despesaExistente.Valor = dto.Valor;
+        despesaExistente.Data = DateTime.SpecifyKind(
+            dto.Data,
             DateTimeKind.Utc);
-
-        DespesaExistente.CategoriaId = despesa.CategoriaId;
-        DespesaExistente.UsuarioId = despesa.UsuarioId;
+        despesaExistente.CategoriaId = dto.CategoriaId;
 
         await _context.SaveChangesAsync();
 
@@ -81,10 +151,16 @@ public class DespesaController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(int id)
     {
-        var despesa = await _context.Despesas.FindAsync(id);
+        var usuarioId = int.Parse(
+            User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+        var despesa = await _context.Despesas
+            .FirstOrDefaultAsync(d =>
+                d.Id == id &&
+                d.UsuarioId == usuarioId);
 
         if (despesa == null)
-            return NotFound();
+            return NotFound("Despesa não encontrada.");
 
         _context.Despesas.Remove(despesa);
 

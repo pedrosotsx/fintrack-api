@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using ControleFinanceiro.DTOs;
 using ControleFinanceiroApi.Data;
 using Microsoft.AspNetCore.Authorization;
@@ -21,17 +22,28 @@ public class DashboardController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> Get()
     {
+        var usuarioId = int.Parse(
+            User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
         var totalReceitas = await _context.Receitas
+            .Where(r => r.UsuarioId == usuarioId)
             .SumAsync(r => (decimal?)r.Valor) ?? 0;
 
         var totalDespesas = await _context.Despesas
+            .Where(d => d.UsuarioId == usuarioId)
             .SumAsync(d => (decimal?)d.Valor) ?? 0;
 
-        var quantidadeReceitas = await _context.Receitas.CountAsync();
+        var quantidadeReceitas = await _context.Receitas
+            .Where(r => r.UsuarioId == usuarioId)
+            .CountAsync();
 
-        var quantidadeDespesas = await _context.Despesas.CountAsync();
+        var quantidadeDespesas = await _context.Despesas
+            .Where(d => d.UsuarioId == usuarioId)
+            .CountAsync();
 
-        var quantidadeMetas = await _context.MetasFinanceiras.CountAsync();
+        var quantidadeMetas = await _context.MetasFinanceiras
+            .Where(m => m.UsuarioId == usuarioId)
+            .CountAsync();
 
         var dashboard = new DashboardDto
         {
